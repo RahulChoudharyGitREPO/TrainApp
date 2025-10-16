@@ -1,14 +1,12 @@
 import express from "express";
 import connectDB from "../lib/db.js";
 import User from "../models/User.js";
-import { hashPassword, generateOTP, generateToken, comparePassword } from "../lib/auth.js";
-import { sendOTPEmail } from "../lib/email.js";
+import { hashPassword, generateOTP, generateToken, comparePassword, generateResetToken } from "../lib/auth.js";
+import { sendOTPEmail, sendPasswordResetEmail } from "../lib/email.js";
 import { sendOTPSMS } from "../lib/otp.js";
-import { validateSignup, validateLogin, validateOTP } from "../lib/validation.js";
+import { validateSignup, validateLogin, validateOTP, validateForgotPassword, validateResetPassword } from "../lib/validation.js";
 import { HTTP_STATUS, MESSAGES } from "../utils/constants.js";
 import { sendResponse, asyncHandler } from "../utils/helpers.js";
-const JWT_SECRET = "gdteyhjuwrtyharyhdcfbrritshfyry"
-
 
 const router = express.Router();
 
@@ -176,6 +174,66 @@ router.post('/resend-otp', asyncHandler(async (req, res) => {
   }
 
   sendResponse(res, HTTP_STATUS.OK, true, 'OTP sent successfully');
+}));
+
+router.post('/forgot-password', asyncHandler(async (req, res) => {
+  const { error } = validateForgotPassword(req.body);
+  if (error) {
+    return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, error.details[0].message);
+  }
+
+  const { email } = req.body;
+
+  const user = await User.findOne({ email });
+
+  if (!user) {
+    return sendResponse(res, HTTP_STATUS.OK, true, 'If an account with that email exists, a password reset link has been sent.');
+  }
+
+  const resetToken = generateResetToken();
+  const resetExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+  user.resetPasswordToken = resetToken;
+  user.resetPasswordExpires = resetExpires;
+  await user.save();
+
+  try {
+    await sendPasswordResetEmail(email, resetToken, user.name);
+  } catch (error) {
+    console.error('Password reset email error:', error);
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpires = undefined;
+    await user.save();
+    return sendResponse(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, false, 'Failed to send password reset email');
+  }
+
+  sendResponse(res, HTTP_STATUS.OK, true, 'If an account with that email exists, a password reset link has been sent.');
+}));
+
+router.post('/reset-password', asyncHandler(async (req, res) => {
+  const { error } = validateResetPassword(req.body);
+  if (error) {
+    return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, error.details[0].message);
+  }
+
+  const { token, newPassword } = req.body;
+
+  const user = await User.findOne({
+    resetPasswordToken: token,
+    resetPasswordExpires: { $gt: Date.now() },
+  });
+
+  if (!user) {
+    return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, 'Password reset token is invalid or has expired');
+  }
+
+  const hashedPassword = await hashPassword(newPassword);
+  user.password = hashedPassword;
+  user.resetPasswordToken = undefined;
+  user.resetPasswordExpires = undefined;
+  await user.save();
+
+  sendResponse(res, HTTP_STATUS.OK, true, 'Password has been reset successfully. You can now login with your new password.');
 }));
 
 export default router;
