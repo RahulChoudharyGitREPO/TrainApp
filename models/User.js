@@ -45,6 +45,35 @@ const UserSchema = new mongoose.Schema(
     resetPasswordExpires: {
       type: Date,
     },
+    profilePicture: {
+      url: String,
+      publicId: String,
+    },
+    savedPassengers: [{
+      name: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+      age: {
+        type: Number,
+        required: true,
+        min: 1,
+        max: 120,
+      },
+      relation: {
+        type: String,
+        enum: ["Self", "Spouse", "Child", "Parent", "Friend", "Other"],
+      }
+    }],
+    favoriteRoutes: [{
+      origin: String,
+      destination: String,
+      addedAt: {
+        type: Date,
+        default: Date.now,
+      }
+    }],
   },
   {
     timestamps: true,

@@ -53,7 +53,14 @@ router.get("/", async (req, res) => {
   try {
     const origin = req.query.origin || req.query.from;
     const destination = req.query.destination || req.query.to;
-    // const date = req.query.date; 
+    const date = req.query.date;
+    const classType = req.query.class;
+    const minPrice = req.query.minPrice ? parseFloat(req.query.minPrice) : null;
+    const maxPrice = req.query.maxPrice ? parseFloat(req.query.maxPrice) : null;
+    const sortBy = req.query.sortBy || 'departureTime'; // departureTime, price, duration
+    const sortOrder = req.query.sortOrder === 'desc' ? -1 : 1;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
 
     if (!origin || !destination) {
       return res.status(400).json({
@@ -62,25 +69,104 @@ router.get("/", async (req, res) => {
       });
     }
 
-    const trains = await Train.find({
+    // Build query
+    const query = {
       origin,
       destination,
       status: "active",
-    }).sort({ departureTime: 1 });
+    };
+
+    // Date range filter
+    if (date) {
+      const searchDate = new Date(date);
+      const nextDay = new Date(searchDate);
+      nextDay.setDate(nextDay.getDate() + 1);
+
+      query.departureTime = {
+        $gte: searchDate,
+        $lt: nextDay,
+      };
+    } else {
+      // Only show future trains by default
+      query.departureTime = { $gte: new Date() };
+    }
+
+    // Class filter
+    if (classType) {
+      query['classes.type'] = classType;
+      query['classes.availableSeats'] = { $gt: 0 };
+    }
+
+    // Fetch trains
+    let trains = await Train.find(query);
+
+    // Calculate details and apply price filters
+    const trainsWithDetails = trains.map(train => {
+      const duration = new Date(train.arrivalTime) - new Date(train.departureTime);
+      const hours = Math.floor(duration / (1000 * 60 * 60));
+      const minutes = Math.floor((duration % (1000 * 60 * 60)) / (1000 * 60));
+      const price = calculatePrice(train, hours);
+
+      return {
+        ...train.toObject(),
+        duration: `${hours}h ${minutes}m`,
+        durationInMinutes: Math.floor(duration / (1000 * 60)),
+        price,
+        occupancyPercentage: (
+          ((train.totalSeats - train.availableSeats) / train.totalSeats) * 100
+        ).toFixed(1),
+      };
+    }).filter(train => {
+      // Apply price range filter after calculation
+      if (minPrice !== null && train.price < minPrice) return false;
+      if (maxPrice !== null && train.price > maxPrice) return false;
+      return true;
+    });
+
+    // Sort trains
+    trainsWithDetails.sort((a, b) => {
+      if (sortBy === 'price') {
+        return sortOrder === 1 ? a.price - b.price : b.price - a.price;
+      } else if (sortBy === 'duration') {
+        return sortOrder === 1
+          ? a.durationInMinutes - b.durationInMinutes
+          : b.durationInMinutes - a.durationInMinutes;
+      } else {
+        // departureTime
+        const dateA = new Date(a.departureTime);
+        const dateB = new Date(b.departureTime);
+        return sortOrder === 1 ? dateA - dateB : dateB - dateA;
+      }
+    });
+
+    // Pagination
+    const total = trainsWithDetails.length;
+    const startIndex = (page - 1) * limit;
+    const endIndex = startIndex + limit;
+    const paginatedTrains = trainsWithDetails.slice(startIndex, endIndex);
 
     res.json({
       success: true,
       message: "Trains fetched successfully",
       data: {
-        trains,
+        trains: paginatedTrains,
         pagination: {
-          totalPages: 1,
-          currentPage: 1,
-          totalTrains: trains.length,
-          hasNext: false,
-          hasPrev: false,
+          totalPages: Math.ceil(total / limit),
+          currentPage: page,
+          totalTrains: total,
+          hasNext: endIndex < total,
+          hasPrev: page > 1,
         },
-        filters: { origin, destination },
+        filters: {
+          origin,
+          destination,
+          date,
+          class: classType,
+          minPrice,
+          maxPrice,
+          sortBy,
+          sortOrder: sortOrder === 1 ? 'asc' : 'desc'
+        },
       },
     });
   } catch (err) {

@@ -49,6 +49,28 @@ const TrainSchema = new mongoose.Schema(
       required: true,
       min: 0,
     },
+    classes: [{
+      type: {
+        type: String,
+        enum: ["AC", "Non-AC", "Sleeper", "Seater", "First Class", "Second Class"],
+      },
+      totalSeats: {
+        type: Number,
+        min: 0,
+      },
+      availableSeats: {
+        type: Number,
+        min: 0,
+      },
+      priceMultiplier: {
+        type: Number,
+        default: 1,
+      }
+    }],
+    amenities: [{
+      type: String,
+      enum: ["WiFi", "Food", "Charging", "Entertainment", "Blanket", "Pillow"]
+    }],
     status: {
       type: String,
       enum: ["active", "inactive", "cancelled"],

@@ -146,6 +146,18 @@ router.post('/', asyncHandler(async (req, res) => {
 
     await session.commitTransaction();
 
+    // Emit real-time seat update via WebSocket
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`train-${trainId}`).emit('seat-update', {
+        trainId: train._id,
+        availableSeats: train.availableSeats,
+        totalSeats: train.totalSeats,
+        occupancyPercentage: ((train.totalSeats - train.availableSeats) / train.totalSeats * 100).toFixed(1),
+        action: 'booking',
+      });
+    }
+
     const populatedBooking = await Booking.findById(booking._id)
       .populate({
         path: 'trainId',
@@ -156,25 +168,30 @@ router.post('/', asyncHandler(async (req, res) => {
         select: 'name email mobile',
       });
 
-    try {
-      await sendBookingConfirmation(req.user.email, {
-        booking: populatedBooking,
-        train: populatedBooking.trainId,
-        user: req.user,
-      });
-    } catch (emailError) {
-      console.error('Email send error:', emailError);
-    }
-
-    const ticketData = generateBookingPDF({
+    // Generate PDF ticket
+    const ticketData = await generateBookingPDF({
       booking: populatedBooking,
       train: populatedBooking.trainId,
       user: req.user,
     });
 
+    // Send confirmation email with PDF attachment
+    try {
+      await sendBookingConfirmation(req.user.email, {
+        booking: populatedBooking,
+        train: populatedBooking.trainId,
+        user: req.user,
+      }, ticketData);
+    } catch (emailError) {
+      console.error('Email send error:', emailError);
+    }
+
     sendResponse(res, HTTP_STATUS.CREATED, true, MESSAGES.BOOKING_SUCCESS, {
       booking: populatedBooking,
-      ticket: ticketData,
+      ticket: {
+        reference: ticketData.reference,
+        bookingId: ticketData.bookingId,
+      },
     });
   } catch (error) {
     await session.abortTransaction();
@@ -183,6 +200,69 @@ router.post('/', asyncHandler(async (req, res) => {
   } finally {
     session.endSession();
   }
+}));
+
+router.post('/verify-ticket', asyncHandler(async (req, res) => {
+  const { bookingReference, qrData } = req.body;
+
+  if (!bookingReference && !qrData) {
+    return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, 'Booking reference or QR data required');
+  }
+
+  let searchQuery = {};
+
+  if (qrData) {
+    try {
+      const parsedData = JSON.parse(qrData);
+      searchQuery = { bookingReference: parsedData.reference };
+    } catch (error) {
+      return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, 'Invalid QR data');
+    }
+  } else {
+    searchQuery = { bookingReference };
+  }
+
+  const booking = await Booking.findOne(searchQuery)
+    .populate({
+      path: 'trainId',
+      select: 'trainName trainNumber origin destination departureTime arrivalTime',
+    })
+    .populate({
+      path: 'userId',
+      select: 'name email mobile',
+    });
+
+  if (!booking) {
+    return sendResponse(res, HTTP_STATUS.NOT_FOUND, false, 'Ticket not found');
+  }
+
+  const isValid = booking.status === 'confirmed';
+  const train = booking.trainId;
+  const departureTime = new Date(train.departureTime);
+  const now = new Date();
+  const hasExpired = departureTime < now;
+
+  sendResponse(res, HTTP_STATUS.OK, true, 'Ticket verified', {
+    valid: isValid && !hasExpired,
+    booking: {
+      reference: booking.bookingReference,
+      status: booking.status,
+      passengers: booking.totalSeatsBooked,
+      bookingTime: booking.createdAt,
+    },
+    train: {
+      name: train.trainName,
+      number: train.trainNumber,
+      route: `${train.origin} → ${train.destination}`,
+      departure: train.departureTime,
+      arrival: train.arrivalTime,
+    },
+    passenger: {
+      name: booking.userId.name,
+      email: booking.userId.email,
+    },
+    expired: hasExpired,
+  });
 }));
 
 router.put('/:bookingId/cancel', asyncHandler(async (req, res) => {
@@ -234,6 +314,18 @@ router.put('/:bookingId/cancel', asyncHandler(async (req, res) => {
     await train.save({ session });
 
     await session.commitTransaction();
+
+    // Emit real-time seat update via WebSocket
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`train-${booking.trainId}`).emit('seat-update', {
+        trainId: train._id,
+        availableSeats: train.availableSeats,
+        totalSeats: train.totalSeats,
+        occupancyPercentage: ((train.totalSeats - train.availableSeats) / train.totalSeats * 100).toFixed(1),
+        action: 'cancellation',
+      });
+    }
 
     sendResponse(res, HTTP_STATUS.OK, true, 'Booking cancelled successfully');
   } catch (error) {

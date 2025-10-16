@@ -1,4 +1,6 @@
 import express from "express";
+import { createServer } from "http";
+import { Server } from "socket.io";
 import cors from "cors";
 import dotenv from "dotenv";
 dotenv.config();
@@ -11,9 +13,28 @@ console.log("TWILIO_ACCOUNT_SID:", process.env.TWILIO_ACCOUNT_SID);
 
 
 const app = express();
+const httpServer = createServer(app);
+const io = new Server(httpServer, {
+  cors: {
+    origin: [
+      "http://localhost:3000",
+      "http://localhost:3001",
+      "http://localhost:5173",
+      "http://127.0.0.1:3000",
+      "http://127.0.0.1:3001",
+      "http://127.0.0.1:5173",
+    ],
+    credentials: true,
+    methods: ["GET", "POST"],
+  },
+});
+
 const PORT = process.env.PORT || 5000;
 
 connectDB();
+
+// Make io accessible to routes
+app.set('io', io);
 
 const corsOptions = {
   origin: [
@@ -43,12 +64,16 @@ import authRoutes from "./routes/auth.js";
 import adminRoutes from "./routes/admin.js";
 import trainRoutes from "./routes/trains.js";
 import bookingRoutes from "./routes/bookings.js";
+import profileRoutes from "./routes/profile.js";
+import paymentRoutes from "./routes/payment.js";
 
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/trains", trainRoutes);
 app.use("/api/bookings", bookingRoutes);
+app.use("/api/profile", profileRoutes);
+app.use("/api/payment", paymentRoutes);
 
 app.get("/api/health", (req, res) => {
   res.json({
@@ -126,13 +151,75 @@ process.on("unhandledRejection", (err) => {
   process.exit(1);
 });
 
-app.listen(PORT, () => {
+// WebSocket connection handling
+const trainViewers = new Map(); // trainId -> Set of socket IDs
+
+io.on('connection', (socket) => {
+  console.log('Client connected:', socket.id);
+
+  // Join train room to receive real-time updates
+  socket.on('join-train', (trainId) => {
+    socket.join(`train-${trainId}`);
+
+    // Track viewers
+    if (!trainViewers.has(trainId)) {
+      trainViewers.set(trainId, new Set());
+    }
+    trainViewers.get(trainId).add(socket.id);
+
+    // Broadcast viewer count
+    const viewerCount = trainViewers.get(trainId).size;
+    io.to(`train-${trainId}`).emit('viewer-count', { trainId, count: viewerCount });
+
+    console.log(`Socket ${socket.id} joined train-${trainId}. Viewers: ${viewerCount}`);
+  });
+
+  // Leave train room
+  socket.on('leave-train', (trainId) => {
+    socket.leave(`train-${trainId}`);
+
+    if (trainViewers.has(trainId)) {
+      trainViewers.get(trainId).delete(socket.id);
+      const viewerCount = trainViewers.get(trainId).size;
+
+      if (viewerCount === 0) {
+        trainViewers.delete(trainId);
+      } else {
+        io.to(`train-${trainId}`).emit('viewer-count', { trainId, count: viewerCount });
+      }
+    }
+
+    console.log(`Socket ${socket.id} left train-${trainId}`);
+  });
+
+  // Handle disconnection
+  socket.on('disconnect', () => {
+    console.log('Client disconnected:', socket.id);
+
+    // Remove from all train rooms
+    trainViewers.forEach((viewers, trainId) => {
+      if (viewers.has(socket.id)) {
+        viewers.delete(socket.id);
+        const viewerCount = viewers.size;
+
+        if (viewerCount === 0) {
+          trainViewers.delete(trainId);
+        } else {
+          io.to(`train-${trainId}`).emit('viewer-count', { trainId, count: viewerCount });
+        }
+      }
+    });
+  });
+});
+
+httpServer.listen(PORT, () => {
   console.log("\n🚀 ================================");
   console.log(`🚂 Train Booking API Server`);
   console.log(`📡 Server running on port ${PORT}`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV || "development"}`);
   console.log(`🔗 Health Check: http://localhost:${PORT}/api/health`);
   console.log(`📚 API Docs: http://localhost:${PORT}/`);
+  console.log(`🔌 WebSocket enabled for real-time updates`);
   console.log("🚀 ================================\n");
 });
 
