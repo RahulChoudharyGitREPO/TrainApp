@@ -220,14 +220,13 @@ io.on('connection', (socket) => {
 });
 
 httpServer.listen(PORT, () => {
-  console.log("\n🚀 ================================");
-  console.log(`🚂 Train Booking API Server`);
-  console.log(`📡 Server running on port ${PORT}`);
-  console.log(`🌍 Environment: ${process.env.NODE_ENV || "development"}`);
-  console.log(`🔗 Health Check: http://localhost:${PORT}/api/health`);
-  console.log(`📚 API Docs: http://localhost:${PORT}/`);
-  console.log(`🔌 WebSocket enabled for real-time updates`);
-  console.log("🚀 ================================\n");
+  
+  
+  console.log(` Server running on port ${PORT}`);
+  console.log(` Environment: ${process.env.NODE_ENV || "development"}`);
+  console.log(` Health Check: http://localhost:${PORT}/api/health`);
+  console.log(` API Docs: http://localhost:${PORT}/`);
+  
 });
 
 export default app;
