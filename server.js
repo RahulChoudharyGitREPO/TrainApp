@@ -1,14 +1,21 @@
+import dotenv from "dotenv";
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+dotenv.config({ path: join(__dirname, '.env') });
+
+console.log("JWT_SECRET loaded:", !!process.env.JWT_SECRET);
+console.log("Environment:", process.env.NODE_ENV);
+console.log("TWILIO_ACCOUNT_SID:", process.env.TWILIO_ACCOUNT_SID);
+
 import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
-import dotenv from "dotenv";
-dotenv.config();
 import connectDB from "./lib/db.js";
-
-// dotenv.config();
-console.log("Environment:", process.env.NODE_ENV);
-console.log("TWILIO_ACCOUNT_SID:", process.env.TWILIO_ACCOUNT_SID);
 
 
 

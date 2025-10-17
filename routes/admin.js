@@ -70,6 +70,7 @@ router.post(
       departureTime,
       arrivalTime,
       seats,
+      classes,
     } = req.body;
 
     const existingTrain = await Train.findOne({
@@ -93,6 +94,7 @@ router.post(
       arrivalTime: new Date(arrivalTime),
       totalSeats: seats,
       availableSeats: seats,
+      classes: classes || [],
     });
 
     await train.save();

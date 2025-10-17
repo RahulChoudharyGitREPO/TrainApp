@@ -21,33 +21,49 @@ router.get('/config', asyncHandler(async (req, res) => {
 
 // Create Razorpay order for booking
 router.post('/create-order', asyncHandler(async (req, res) => {
-  const { trainId, passengers, amount } = req.body;
+  const { trainId, passengers, classType } = req.body;
   const userId = req.user.id;
 
-  if (!trainId || !passengers || !amount) {
-    return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, 'Train ID, passengers, and amount are required');
+  if (!trainId || !passengers || !classType) {
+    return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, 'Train ID, passengers, and class type are required');
   }
 
   if (!Array.isArray(passengers) || passengers.length === 0) {
     return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, 'At least one passenger is required');
   }
 
-  // Validate train exists and has seats
+  // Validate trainId is a valid MongoDB ObjectId
+  if (!mongoose.Types.ObjectId.isValid(trainId)) {
+    return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, 'Invalid Train ID format');
+  }
+
+  // Validate train exists
   const train = await Train.findById(trainId);
   if (!train) {
     return sendResponse(res, HTTP_STATUS.NOT_FOUND, false, 'Train not found');
   }
 
-  if (train.availableSeats < passengers.length) {
-    return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, 'Insufficient seats available');
+  // Find the selected class and get its price
+  const selectedClass = train.classes.find(cls => cls.type === classType);
+  if (!selectedClass) {
+    return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, `Class type "${classType}" not available for this train`);
   }
+
+  // Check if enough seats are available in the selected class
+  if (selectedClass.availableSeats < passengers.length) {
+    return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, `Insufficient seats available in ${classType} class`);
+  }
+
+  // Calculate total amount based on number of passengers and class price
+  const pricePerTicket = selectedClass.price;
+  const totalAmount = pricePerTicket * passengers.length;
 
   // Create temporary booking reference
   const bookingReference = 'TRB' + Date.now().toString(36).toUpperCase() +
                           Math.random().toString(36).substr(2, 5).toUpperCase();
 
   // Create Razorpay order
-  const orderResult = await createRazorpayOrder(amount, 'INR', bookingReference);
+  const orderResult = await createRazorpayOrder(totalAmount, 'INR', bookingReference);
 
   if (!orderResult.success) {
     return sendResponse(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, false, 'Failed to create payment order');
@@ -56,7 +72,10 @@ router.post('/create-order', asyncHandler(async (req, res) => {
   // Store order details temporarily (you might want to create a pending booking)
   sendResponse(res, HTTP_STATUS.OK, true, 'Payment order created successfully', {
     orderId: orderResult.order.id,
-    amount: orderResult.order.amount,
+    amount: totalAmount, // Total calculated amount in rupees
+    pricePerTicket: pricePerTicket,
+    classType: classType,
+    numberOfPassengers: passengers.length,
     currency: orderResult.order.currency,
     bookingReference,
     keyId: process.env.RAZORPAY_KEY_ID,

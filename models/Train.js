@@ -54,6 +54,11 @@ const TrainSchema = new mongoose.Schema(
         type: String,
         enum: ["AC", "Non-AC", "Sleeper", "Seater", "First Class", "Second Class"],
       },
+      price: {
+        type: Number,
+        required: true,
+        min: 0,
+      },
       totalSeats: {
         type: Number,
         min: 0,
