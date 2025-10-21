@@ -38,8 +38,6 @@ const io = new Server(httpServer, {
 
 const PORT = process.env.PORT || 5000;
 
-connectDB();
-
 // Make io accessible to routes
 app.set('io', io);
 
@@ -219,14 +217,27 @@ io.on('connection', (socket) => {
   });
 });
 
-httpServer.listen(PORT, () => {
-  
-  
-  console.log(` Server running on port ${PORT}`);
-  console.log(` Environment: ${process.env.NODE_ENV || "development"}`);
-  console.log(` Health Check: http://localhost:${PORT}/api/health`);
-  console.log(` API Docs: http://localhost:${PORT}/`);
-  
-});
+// Start server function
+const startServer = async () => {
+  try {
+    // Connect to MongoDB first
+    await connectDB();
+    console.log('✅ Database connected successfully');
+    
+    // Then start the server
+    httpServer.listen(PORT, () => {
+      console.log(` Server running on port ${PORT}`);
+      console.log(` Environment: ${process.env.NODE_ENV || "development"}`);
+      console.log(` Health Check: http://localhost:${PORT}/api/health`);
+      console.log(` API Docs: http://localhost:${PORT}/`);
+    });
+  } catch (error) {
+    console.error('❌ Failed to start server:', error);
+    process.exit(1);
+  }
+};
+
+// Start the server
+startServer();
 
 export default app;

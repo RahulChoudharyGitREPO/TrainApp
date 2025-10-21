@@ -1,5 +1,4 @@
 import express from "express";
-import connectDB from "../lib/db.js";
 import User from "../models/User.js";
 import { hashPassword, generateOTP, generateToken, comparePassword, generateResetToken } from "../lib/auth.js";
 import { sendOTPEmail, sendPasswordResetEmail } from "../lib/email.js";
@@ -43,14 +42,13 @@ router.post('/signup', asyncHandler(async (req, res) => {
 
   await user.save();
 
-  try {
-    await Promise.all([
-      sendOTPEmail(email, otp, name),
-      sendOTPSMS(mobile, otp, name),
-    ]);
-  } catch (error) {
+  // Send OTP asynchronously without blocking the response
+  Promise.all([
+    sendOTPEmail(email, otp, name),
+    sendOTPSMS(mobile, otp, name),
+  ]).catch(error => {
     console.error('OTP send error:', error);
-  }
+  });
 
   sendResponse(res, HTTP_STATUS.CREATED, true, MESSAGES.USER_CREATED);
 }));
@@ -130,14 +128,13 @@ router.post('/login', asyncHandler(async (req, res) => {
   };
   await user.save();
 
-  try {
-    await Promise.all([
-      sendOTPEmail(user.email, otp, user.name),
-      sendOTPSMS(mobile, otp, user.name),
-    ]);
-  } catch (error) {
+  // Send OTP asynchronously without blocking the response
+  Promise.all([
+    sendOTPEmail(user.email, otp, user.name),
+    sendOTPSMS(mobile, otp, user.name),
+  ]).catch(error => {
     console.error('OTP send error:', error);
-  }
+  });
 
   sendResponse(res, HTTP_STATUS.OK, true, MESSAGES.OTP_SENT);
 }));
@@ -164,14 +161,13 @@ router.post('/resend-otp', asyncHandler(async (req, res) => {
   };
   await user.save();
 
-  try {
-    await Promise.all([
-      sendOTPEmail(user.email, otp, user.name),
-      sendOTPSMS(mobile, otp, user.name),
-    ]);
-  } catch (error) {
+  // Send OTP asynchronously without blocking the response
+  Promise.all([
+    sendOTPEmail(user.email, otp, user.name),
+    sendOTPSMS(mobile, otp, user.name),
+  ]).catch(error => {
     console.error('OTP send error:', error);
-  }
+  });
 
   sendResponse(res, HTTP_STATUS.OK, true, 'OTP sent successfully');
 }));
