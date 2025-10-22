@@ -95,6 +95,7 @@ router.post('/verify-payment', asyncHandler(async (req, res) => {
       trainId,
       passengers,
       amount,
+      classType,
     } = req.body;
 
     if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
@@ -139,11 +140,6 @@ router.post('/verify-payment', asyncHandler(async (req, res) => {
 
     const totalSeatsBooked = passengers.length;
 
-    if (train.availableSeats < totalSeatsBooked) {
-      await session.abortTransaction();
-      return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, 'Insufficient seats available');
-    }
-
     if (train.status !== 'active') {
       await session.abortTransaction();
       return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, 'Train is not available for booking');
@@ -154,12 +150,32 @@ router.post('/verify-payment', asyncHandler(async (req, res) => {
       return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, 'Cannot book past or ongoing trains');
     }
 
+    // Validate classType is required
+    if (!classType) {
+      await session.abortTransaction();
+      return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, 'Class type is required');
+    }
+
+    // Find the selected class
+    const selectedClass = train.classes.find(cls => cls.type === classType);
+    if (!selectedClass) {
+      await session.abortTransaction();
+      return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, `Class type "${classType}" not available for this train`);
+    }
+
+    // Check class-specific seat availability
+    if (selectedClass.availableSeats < totalSeatsBooked) {
+      await session.abortTransaction();
+      return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, `Insufficient seats available in ${classType} class`);
+    }
+
     // Create booking with payment details
     const booking = new Booking({
       userId: req.user.id,
       trainId,
       passengers,
       totalSeatsBooked,
+      classType,
       payment: {
         orderId: razorpay_order_id,
         paymentId: razorpay_payment_id,
@@ -174,7 +190,9 @@ router.post('/verify-payment', asyncHandler(async (req, res) => {
 
     await booking.save({ session });
 
-    // Update train seats
+    // Update class-specific seats
+    selectedClass.availableSeats -= totalSeatsBooked;
+    // Also update general train seats
     train.availableSeats -= totalSeatsBooked;
     await train.save({ session });
 

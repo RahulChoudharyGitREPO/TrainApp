@@ -32,6 +32,11 @@ const BookingSchema = new mongoose.Schema({
     required: true,
     min: 1,
   },
+  classType: {
+    type: String,
+    enum: ["AC", "Non-AC", "Sleeper", "Seater", "First Class", "Second Class"],
+    required: true,
+  },
   bookingTime: {
     type: Date,
     default: Date.now,
