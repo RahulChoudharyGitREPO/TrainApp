@@ -34,7 +34,7 @@ const BookingSchema = new mongoose.Schema({
   },
   classType: {
     type: String,
-    enum: ["AC", "Non-AC", "Sleeper", "Seater", "First Class", "Second Class"],
+    enum: ["AC", "Non-AC", "Sleeper", "Seater", "First Class", "Second Class", "AC Chair Car", "Executive Class"],
     required: true,
   },
   bookingTime: {

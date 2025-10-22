@@ -49,10 +49,14 @@ const TrainSchema = new mongoose.Schema(
       required: true,
       min: 0,
     },
+    image: {
+      type: String,
+      default: 'https://images.unsplash.com/photo-1474487548417-781cb71495f3?w=800',
+    },
     classes: [{
       type: {
         type: String,
-        enum: ["AC", "Non-AC", "Sleeper", "Seater", "First Class", "Second Class"],
+        enum: ["AC", "Non-AC", "Sleeper", "Seater", "First Class", "Second Class", "AC Chair Car", "Executive Class"],
       },
       price: {
         type: Number,
