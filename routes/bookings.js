@@ -310,6 +310,15 @@ router.put('/:bookingId/cancel', asyncHandler(async (req, res) => {
     booking.status = 'cancelled';
     await booking.save({ session });
 
+    // Restore class-specific seats if classType exists
+    if (booking.classType) {
+      const bookedClass = train.classes.find(cls => cls.type === booking.classType);
+      if (bookedClass) {
+        bookedClass.availableSeats += booking.totalSeatsBooked;
+      }
+    }
+
+    // Restore general train seats
     train.availableSeats += booking.totalSeatsBooked;
     await train.save({ session });
 
