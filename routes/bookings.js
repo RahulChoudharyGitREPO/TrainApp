@@ -283,11 +283,15 @@ router.get('/:bookingId/download-ticket', asyncHandler(async (req, res) => {
     return sendResponse(res, HTTP_STATUS.NOT_FOUND, false, 'Booking not found');
   }
 
+  if (!booking.trainId) {
+    return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, 'Train information not found for this booking');
+  }
+
   // Generate PDF ticket
   const ticketData = await generateBookingPDF({
     booking: booking,
     train: booking.trainId,
-    user: req.user,
+    user: booking.userId,
   });
 
   // Set headers for PDF download
