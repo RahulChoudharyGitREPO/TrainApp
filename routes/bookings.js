@@ -8,12 +8,13 @@ import { validateBooking } from '../lib/validation.js';
 import { sendBookingConfirmation } from '../lib/email.js';
 import { generateBookingPDF, sendResponse, asyncHandler } from '../utils/helpers.js';
 import { HTTP_STATUS, MESSAGES } from '../utils/constants.js';
+import { cacheMiddleware, invalidateCacheMiddleware } from '../middleware/cache.js';
 
 const router = express.Router();
 
 router.use(authenticate);
 
-router.get('/', asyncHandler(async (req, res) => {
+router.get('/', cacheMiddleware(60), asyncHandler(async (req, res) => {
   const { page = 1, limit = 10, status } = req.query;
   const userId = req.user.id;
 
@@ -96,7 +97,7 @@ router.get('/:bookingId', asyncHandler(async (req, res) => {
   sendResponse(res, HTTP_STATUS.OK, true, 'Booking details fetched successfully', bookingObj);
 }));
 
-router.post('/', asyncHandler(async (req, res) => {
+router.post('/', invalidateCacheMiddleware(['cache:*/api/bookings*', 'cache:*/api/trains*']), asyncHandler(async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
@@ -302,7 +303,7 @@ router.get('/:bookingId/download-ticket', asyncHandler(async (req, res) => {
   res.send(ticketData.buffer);
 }));
 
-router.put('/:bookingId/cancel', asyncHandler(async (req, res) => {
+router.put('/:bookingId/cancel', invalidateCacheMiddleware(['cache:*/api/bookings*', 'cache:*/api/trains*']), asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
   const userId = req.user.id;
 

@@ -4,6 +4,7 @@ import { authenticate } from '../middleware/auth.js';
 import { sendResponse, asyncHandler } from '../utils/helpers.js';
 import { HTTP_STATUS } from '../utils/constants.js';
 import { createRazorpayOrder, verifyRazorpaySignature, getPaymentDetails, refundPayment } from '../lib/razorpay.js';
+import { invalidateCacheMiddleware } from '../middleware/cache.js';
 import Booking from '../models/Booking.js';
 import Train from '../models/Train.js';
 
@@ -83,7 +84,7 @@ router.post('/create-order', asyncHandler(async (req, res) => {
 }));
 
 // Verify payment and create booking
-router.post('/verify-payment', asyncHandler(async (req, res) => {
+router.post('/verify-payment', invalidateCacheMiddleware(['cache:*/api/bookings*', 'cache:*/api/trains*']), asyncHandler(async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
@@ -229,15 +230,15 @@ router.post('/verify-payment', asyncHandler(async (req, res) => {
       const ticketData = await generateBookingPDF({
         booking: populatedBooking,
         train: populatedBooking.trainId,
-        user: req.user,
+        user: populatedBooking.userId,
       });
 
       await sendBookingConfirmation(
-        req.user.email,
+        populatedBooking.userId.email,
         {
           booking: populatedBooking,
           train: populatedBooking.trainId,
-          user: req.user,
+          user: populatedBooking.userId,
         },
         ticketData
       );

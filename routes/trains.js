@@ -3,10 +3,11 @@ import express from "express";
 import Train from "../models/Train.js";
 import { HTTP_STATUS } from "../utils/constants.js";
 import { sendResponse, asyncHandler } from "../utils/helpers.js";
+import { cacheMiddleware } from "../middleware/cache.js";
 
 const router = express.Router();
 
-router.get("/all", asyncHandler(async (req, res) => {
+router.get("/all", cacheMiddleware(300), asyncHandler(async (req, res) => {
   try {
     const trains = await Train.find({ status: "active" })
       .sort({ departureTime: 1 })
@@ -49,7 +50,7 @@ router.get("/all", asyncHandler(async (req, res) => {
   }
 }));
 
-router.get("/", async (req, res) => {
+router.get("/", cacheMiddleware(180), async (req, res) => {
   try {
     const origin = req.query.origin || req.query.from;
     const destination = req.query.destination || req.query.to;
