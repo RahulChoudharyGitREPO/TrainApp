@@ -119,24 +119,26 @@ router.post('/login', asyncHandler(async (req, res) => {
     return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, MESSAGES.INVALID_CREDENTIALS);
   }
 
-  const otp = generateOTP();
-  const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-
-  user.otp = {
-    code: otp,
-    expiresAt: otpExpiresAt,
-  };
-  await user.save();
-
-  // Send OTP asynchronously without blocking the response
-  Promise.all([
-    sendOTPEmail(user.email, otp, user.name),
-    sendOTPSMS(mobile, otp, user.name),
-  ]).catch(error => {
-    console.error('OTP send error:', error);
+  // Generate token and return user data directly
+  const token = generateToken({
+    userId: user._id,
+    email: user.email,
+    role: user.role,
   });
 
-  sendResponse(res, HTTP_STATUS.OK, true, MESSAGES.OTP_SENT);
+  const userData = {
+    id: user._id,
+    name: user.name,
+    email: user.email,
+    mobile: user.mobile,
+    role: user.role,
+    verified: user.verified,
+  };
+
+  sendResponse(res, HTTP_STATUS.OK, true, 'Login successful', {
+    token,
+    user: userData,
+  });
 }));
 
 router.post('/resend-otp', asyncHandler(async (req, res) => {

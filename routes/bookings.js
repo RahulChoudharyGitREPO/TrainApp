@@ -265,6 +265,39 @@ router.post('/verify-ticket', asyncHandler(async (req, res) => {
   });
 }));
 
+router.get('/:bookingId/download-ticket', asyncHandler(async (req, res) => {
+  const { bookingId } = req.params;
+  const userId = req.user.id;
+
+  const booking = await Booking.findOne({ _id: bookingId, userId })
+    .populate({
+      path: 'trainId',
+      select: 'trainName trainNumber origin destination departureTime arrivalTime',
+    })
+    .populate({
+      path: 'userId',
+      select: 'name email mobile',
+    });
+
+  if (!booking) {
+    return sendResponse(res, HTTP_STATUS.NOT_FOUND, false, 'Booking not found');
+  }
+
+  // Generate PDF ticket
+  const ticketData = await generateBookingPDF({
+    booking: booking,
+    train: booking.trainId,
+    user: req.user,
+  });
+
+  // Set headers for PDF download
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="ticket-${booking.bookingReference}.pdf"`);
+
+  // Send the PDF buffer
+  res.send(ticketData.buffer);
+}));
+
 router.put('/:bookingId/cancel', asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
   const userId = req.user.id;
