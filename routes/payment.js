@@ -189,30 +189,7 @@ router.post('/verify-payment', invalidateCacheMiddleware(['cache:*/api/bookings*
         select: 'name email mobile',
       });
 
-    // Send confirmation email (import from bookings route logic)
-    try {
-      const { sendBookingConfirmation } = await import('../lib/email.js');
-      const { generateBookingPDF } = await import('../utils/helpers.js');
-
-      const ticketData = await generateBookingPDF({
-        booking: populatedBooking,
-        train: populatedBooking.trainId,
-        user: populatedBooking.userId,
-      });
-
-      await sendBookingConfirmation(
-        populatedBooking.userId.email,
-        {
-          booking: populatedBooking,
-          train: populatedBooking.trainId,
-          user: populatedBooking.userId,
-        },
-        ticketData
-      );
-    } catch (emailError) {
-      console.error('Email send error:', emailError);
-    }
-
+    // Send response immediately
     sendResponse(res, HTTP_STATUS.CREATED, true, 'Payment verified and booking created successfully', {
       booking: populatedBooking,
       payment: {
@@ -221,6 +198,33 @@ router.post('/verify-payment', invalidateCacheMiddleware(['cache:*/api/bookings*
         amount: amount,
         currency: 'INR',
       },
+    });
+
+    // Send confirmation email in background (non-blocking)
+    setImmediate(async () => {
+      try {
+        const { sendBookingConfirmation } = await import('../lib/email.js');
+        const { generateBookingPDF } = await import('../utils/helpers.js');
+
+        const ticketData = await generateBookingPDF({
+          booking: populatedBooking,
+          train: populatedBooking.trainId,
+          user: populatedBooking.userId,
+        });
+
+        await sendBookingConfirmation(
+          populatedBooking.userId.email,
+          {
+            booking: populatedBooking,
+            train: populatedBooking.trainId,
+            user: populatedBooking.userId,
+          },
+          ticketData
+        );
+        console.log('✅ Booking confirmation email sent successfully');
+      } catch (emailError) {
+        console.error('❌ Email send error:', emailError.message);
+      }
     });
   } catch (error) {
     await session.abortTransaction();
