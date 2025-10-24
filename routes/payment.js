@@ -3,7 +3,6 @@ import mongoose from 'mongoose';
 import { authenticate } from '../middleware/auth.js';
 import { sendResponse, asyncHandler } from '../utils/helpers.js';
 import { HTTP_STATUS } from '../utils/constants.js';
-import { createRazorpayOrder, verifyRazorpaySignature, getPaymentDetails, refundPayment } from '../lib/razorpay.js';
 import { invalidateCacheMiddleware } from '../middleware/cache.js';
 import Booking from '../models/Booking.js';
 import Train from '../models/Train.js';
@@ -13,14 +12,14 @@ const router = express.Router();
 // All routes require authentication
 router.use(authenticate);
 
-// Get Razorpay key for frontend
+// Get payment config for frontend (dummy)
 router.get('/config', asyncHandler(async (req, res) => {
-  sendResponse(res, HTTP_STATUS.OK, true, 'Razorpay config fetched', {
-    keyId: process.env.RAZORPAY_KEY_ID,
+  sendResponse(res, HTTP_STATUS.OK, true, 'Payment config fetched', {
+    paymentMode: 'dummy',
   });
 }));
 
-// Create Razorpay order for booking
+// Create dummy payment order for booking
 router.post('/create-order', asyncHandler(async (req, res) => {
   const { trainId, passengers, classType } = req.body;
   const userId = req.user.id;
@@ -63,74 +62,42 @@ router.post('/create-order', asyncHandler(async (req, res) => {
   const bookingReference = 'TRB' + Date.now().toString(36).toUpperCase() +
                           Math.random().toString(36).substr(2, 5).toUpperCase();
 
-  // Create Razorpay order
-  const orderResult = await createRazorpayOrder(totalAmount, 'INR', bookingReference);
-
-  if (!orderResult.success) {
-    return sendResponse(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, false, 'Failed to create payment order');
-  }
+  // Create dummy order ID
+  const orderId = 'order_dummy_' + Date.now() + Math.random().toString(36).substr(2, 9);
 
   // Store order details temporarily (you might want to create a pending booking)
   sendResponse(res, HTTP_STATUS.OK, true, 'Payment order created successfully', {
-    orderId: orderResult.order.id,
+    orderId: orderId,
     amount: totalAmount, // Total calculated amount in rupees
     pricePerTicket: pricePerTicket,
     classType: classType,
     numberOfPassengers: passengers.length,
-    currency: orderResult.order.currency,
+    currency: 'INR',
     bookingReference,
-    keyId: process.env.RAZORPAY_KEY_ID,
   });
 }));
 
-// Verify payment and create booking
+// Verify payment and create booking (dummy payment - auto-approved)
 router.post('/verify-payment', invalidateCacheMiddleware(['cache:*/api/bookings*', 'cache:*/api/trains*']), asyncHandler(async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
     const {
-      razorpay_order_id,
-      razorpay_payment_id,
-      razorpay_signature,
+      orderId,
+      paymentId,
       trainId,
       passengers,
       amount,
       classType,
     } = req.body;
 
-    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+    if (!orderId || !trainId || !passengers || !amount) {
       await session.abortTransaction();
       return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, 'Payment verification details are required');
     }
 
-    // Verify signature
-    const isValidSignature = verifyRazorpaySignature(
-      razorpay_order_id,
-      razorpay_payment_id,
-      razorpay_signature
-    );
-
-    if (!isValidSignature) {
-      await session.abortTransaction();
-      return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, 'Invalid payment signature');
-    }
-
-    // Get payment details from Razorpay
-    const paymentDetailsResult = await getPaymentDetails(razorpay_payment_id);
-
-    if (!paymentDetailsResult.success) {
-      await session.abortTransaction();
-      return sendResponse(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, false, 'Failed to fetch payment details');
-    }
-
-    const paymentDetails = paymentDetailsResult.payment;
-
-    // Verify payment status
-    if (paymentDetails.status !== 'captured' && paymentDetails.status !== 'authorized') {
-      await session.abortTransaction();
-      return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, 'Payment not successful');
-    }
+    // Dummy payment - automatically approve all payments
 
     // Verify train and seats
     const train = await Train.findById(trainId).session(session);
@@ -170,7 +137,7 @@ router.post('/verify-payment', invalidateCacheMiddleware(['cache:*/api/bookings*
       return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, `Insufficient seats available in ${classType} class`);
     }
 
-    // Create booking with payment details
+    // Create booking with dummy payment details
     const booking = new Booking({
       userId: req.user.id,
       trainId,
@@ -178,14 +145,14 @@ router.post('/verify-payment', invalidateCacheMiddleware(['cache:*/api/bookings*
       totalSeatsBooked,
       classType,
       payment: {
-        orderId: razorpay_order_id,
-        paymentId: razorpay_payment_id,
-        signature: razorpay_signature,
+        orderId: orderId || 'dummy_order_' + Date.now(),
+        paymentId: paymentId || 'dummy_payment_' + Date.now(),
+        signature: 'dummy_signature',
         amount: amount,
-        currency: paymentDetails.currency,
+        currency: 'INR',
         status: 'completed',
-        method: paymentDetails.method,
-        paidAt: new Date(paymentDetails.created_at * 1000),
+        method: 'dummy',
+        paidAt: new Date(),
       },
     });
 
@@ -249,10 +216,10 @@ router.post('/verify-payment', invalidateCacheMiddleware(['cache:*/api/bookings*
     sendResponse(res, HTTP_STATUS.CREATED, true, 'Payment verified and booking created successfully', {
       booking: populatedBooking,
       payment: {
-        id: razorpay_payment_id,
+        id: paymentId || 'dummy_payment_' + Date.now(),
         status: 'completed',
         amount: amount,
-        currency: paymentDetails.currency,
+        currency: 'INR',
       },
     });
   } catch (error) {
@@ -264,22 +231,22 @@ router.post('/verify-payment', invalidateCacheMiddleware(['cache:*/api/bookings*
   }
 }));
 
-// Get payment status
+// Get payment status (dummy)
 router.get('/status/:paymentId', asyncHandler(async (req, res) => {
   const { paymentId } = req.params;
 
-  const paymentResult = await getPaymentDetails(paymentId);
-
-  if (!paymentResult.success) {
-    return sendResponse(res, HTTP_STATUS.NOT_FOUND, false, 'Payment not found');
-  }
-
   sendResponse(res, HTTP_STATUS.OK, true, 'Payment details fetched', {
-    payment: paymentResult.payment,
+    payment: {
+      id: paymentId,
+      status: 'completed',
+      method: 'dummy',
+      amount: 0,
+      currency: 'INR',
+    },
   });
 }));
 
-// Request refund for cancelled booking
+// Request refund for cancelled booking (dummy - auto approve)
 router.post('/refund/:bookingId', asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
   const userId = req.user.id;
@@ -302,19 +269,17 @@ router.post('/refund/:bookingId', asyncHandler(async (req, res) => {
     return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, 'No payment found for this booking');
   }
 
-  // Process refund
-  const refundResult = await refundPayment(booking.payment.paymentId, booking.payment.amount);
-
-  if (!refundResult.success) {
-    return sendResponse(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, false, 'Refund processing failed');
-  }
-
-  // Update booking payment status
+  // Dummy refund - automatically approve
   booking.payment.status = 'refunded';
   await booking.save();
 
   sendResponse(res, HTTP_STATUS.OK, true, 'Refund processed successfully', {
-    refund: refundResult.refund,
+    refund: {
+      id: 'refund_dummy_' + Date.now(),
+      amount: booking.payment.amount,
+      currency: 'INR',
+      status: 'processed',
+    },
     booking: {
       id: booking._id,
       reference: booking.bookingReference,
