@@ -151,7 +151,7 @@ router.post('/verify-payment', invalidateCacheMiddleware(['cache:*/api/bookings*
         amount: amount,
         currency: 'INR',
         status: 'completed',
-        method: 'dummy',
+        method: 'upi', // Using existing enum value to avoid schema cache issues
         paidAt: new Date(),
       },
     });
