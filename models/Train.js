@@ -78,7 +78,7 @@ const TrainSchema = new mongoose.Schema(
     }],
     amenities: [{
       type: String,
-      enum: ["WiFi", "Food", "Charging", "Entertainment", "Blanket", "Pillow"]
+      enum: ["WiFi", "Food", "Charging", "Charging Port", "Entertainment", "Blanket", "Pillow"]
     }],
     status: {
       type: String,
