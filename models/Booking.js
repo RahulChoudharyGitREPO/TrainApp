@@ -75,7 +75,7 @@ const BookingSchema = new mongoose.Schema({
     },
     method: {
       type: String,
-      enum: ['card', 'netbanking', 'upi', 'wallet', 'emi'],
+      enum: ['card', 'netbanking', 'upi', 'wallet', 'emi', 'dummy'],
     },
     paidAt: {
       type: Date,
