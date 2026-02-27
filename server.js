@@ -9,12 +9,14 @@ dotenv.config({ path: join(__dirname, '.env') });
 
 console.log("JWT_SECRET loaded:", !!process.env.JWT_SECRET);
 console.log("Environment:", process.env.NODE_ENV);
-console.log("TWILIO_ACCOUNT_SID:", process.env.TWILIO_ACCOUNT_SID);
+console.log("TWILIO_ACCOUNT_SID loaded:", !!process.env.TWILIO_ACCOUNT_SID);
 
 import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import connectDB from "./lib/db.js";
 
 
@@ -27,9 +29,7 @@ const io = new Server(httpServer, {
       "http://localhost:3000",
       "http://localhost:3001",
       "http://localhost:5173",
-      "http://127.0.0.1:3000",
-      "http://127.0.0.1:3001",
-      "http://127.0.0.1:5173",
+     
     ],
     credentials: true,
     methods: ["GET", "POST"],
@@ -46,9 +46,7 @@ const corsOptions = {
     "http://localhost:3000",
     "http://localhost:3001",
     "http://localhost:5173",
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:3001",
-    "http://127.0.0.1:5173",
+    
   ],
   credentials: true,
   optionsSuccessStatus: 200,
@@ -56,9 +54,29 @@ const corsOptions = {
   allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
 };
 
+app.use(helmet());
 app.use(cors(corsOptions));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
+
+// Global rate limit: 100 requests per 15 minutes per IP
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many requests, please try again later.' },
+});
+app.use(globalLimiter);
+
+// Strict rate limit for auth routes: 10 requests per 15 minutes per IP
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many authentication attempts, please try again later.' },
+});
 
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
@@ -73,7 +91,7 @@ import profileRoutes from "./routes/profile.js";
 import paymentRoutes from "./routes/payment.js";
 
 // Routes
-app.use("/api/auth", authRoutes);
+app.use("/api/auth", authLimiter, authRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/trains", trainRoutes);
 app.use("/api/bookings", bookingRoutes);
