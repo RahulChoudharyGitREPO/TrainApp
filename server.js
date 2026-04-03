@@ -89,6 +89,7 @@ import trainRoutes from "./routes/trains.js";
 import bookingRoutes from "./routes/bookings.js";
 import profileRoutes from "./routes/profile.js";
 import paymentRoutes from "./routes/payment.js";
+import aiRoutes from "./routes/ai.js";
 
 // Routes
 app.use("/api/auth", authLimiter, authRoutes);
@@ -97,6 +98,7 @@ app.use("/api/trains", trainRoutes);
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/payment", paymentRoutes);
+app.use("/api/ai", aiRoutes);
 
 app.get("/api/health", (req, res) => {
   res.json({
