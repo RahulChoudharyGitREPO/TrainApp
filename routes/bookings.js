@@ -108,7 +108,7 @@ router.post('/', invalidateCacheMiddleware(['cache:*/api/bookings*', 'cache:*/ap
       return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, error.details[0].message);
     }
 
-    const { trainId, passengers } = req.body;
+    const { trainId, passengers, classType } = req.body;
     const userId = req.user.id;
     const totalSeatsBooked = passengers.length;
 
@@ -133,16 +133,24 @@ router.post('/', invalidateCacheMiddleware(['cache:*/api/bookings*', 'cache:*/ap
       return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, 'Cannot book past or ongoing trains');
     }
 
+    const requestedClass = train.classes?.find(c => c.type === classType);
+    const amount = requestedClass ? requestedClass.price * totalSeatsBooked : 0;
+
     const booking = new Booking({
       userId,
       trainId,
       passengers,
       totalSeatsBooked,
+      classType,
+      payment: { amount },
     });
 
     await booking.save({ session });
 
     train.availableSeats -= totalSeatsBooked;
+    if (requestedClass) {
+      requestedClass.availableSeats -= totalSeatsBooked;
+    }
     await train.save({ session });
 
     await session.commitTransaction();
