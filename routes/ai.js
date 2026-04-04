@@ -232,8 +232,9 @@ CRITICAL MEMORY & LOGIC:
 - CURRENT BOOKING STATE (below) shows what is already known. Do NOT re-ask for these.
 - If origin and destination are the same, politely ask for a valid route.
 - PARTIAL QUERIES:
-  - If ONLY [Origin] is provided: "All trains from Delhi", call searchTrains(from="Delhi").
+  - If ALWAYS [Origin] is provided: "All trains from Delhi", call searchTrains(from="Delhi"). IMPORTANT: CLEAR the destination in your mind for these broad queries.
   - If ONLY [Destination] is provided: "I want to go to Mumbai", call searchTrains(to="Mumbai").
+  - If user ask "When is the next train from [Origin]", OMIT the 'to' parameter completely to show all possible departures.
   - If NO [From/To] but [Date] is provided: "What is running today?", call searchTrains(date="YYYY-MM-DD").
   - If NO data is provided but user wants to "travel" or "book": Check favoriteRoutes and proactively suggest: "I see you often travel to Mumbai, shall I check trains from Delhi to Mumbai for tomorrow?"
 - For "shortest", "cheapest", or "fastest" queries, search first then analyze the results for the user.
@@ -406,7 +407,12 @@ const CITY_MAPPING = {
   'ahmedabad': ['Ahmedabad Junction', 'Sabarmati', 'Kalupur'],
   'lucknow': ['Lucknow Charbagh', 'Lucknow Junction', 'Aishbagh'],
   'patna': ['Patna Junction', 'Patliputra', 'Rajendra Nagar'],
-  'surat': ['Surat Station', 'Udhna Junction']
+  'surat': ['Surat Station', 'Udhna Junction'],
+  'goa': ['Madgaon', 'Thivim', 'Vasco Da Gama', 'Karmali'],
+  'varanasi': ['Varanasi Junction', 'Banaras', 'Pandit Deen Dayal Upadhyaya Junction'],
+  'amritsar': ['Amritsar Junction'],
+  'kerala': ['Ernakulam Junction', 'Thiruvananthapuram Central', 'Kochi', 'Kozhikode'],
+  'kashmir': ['Jammu Tawi', 'Srinagar', 'Udhampur']
 };
 
 /**
@@ -456,7 +462,7 @@ async function searchTrains({ from, to, date }) {
     .limit(10)
     .lean();
 
-  // SMART FALLBACK: If a specific date was requested but no trains found, 
+  // SMART FALLBACK 1: If a specific date was requested but no trains found, 
   // search for the NEXT available trains for this route.
   if (date && trains.length === 0) {
     isFallback = true;
@@ -469,10 +475,28 @@ async function searchTrains({ from, to, date }) {
       .sort({ departureTime: 1 })
       .limit(10)
       .lean();
+  }
+
+  // SMART FALLBACK 2: If BOTH origin and destination were provided but NO results found even with date fallback,
+  // try searching for ANY trains from the origin to ANY destination.
+  let suggestedRouteMessage = null;
+  if (from && to && trains.length === 0) {
+    const broadQuery = { status: 'active', origin: getStationQuery(from), departureTime: { $gte: new Date() } };
+    const alternativeTrains = await Train.find(broadQuery)
+      .select('trainName trainNumber origin destination departureTime arrivalTime availableSeats totalSeats classes status')
+      .sort({ departureTime: 1 })
+      .limit(5)
+      .lean();
     
-    if (trains.length > 0) {
-      finalDate = trains[0].departureTime.toISOString().split('T')[0];
+    if (alternativeTrains.length > 0) {
+      trains = alternativeTrains;
+      isFallback = true;
+      suggestedRouteMessage = `I couldn't find any trains from ${from} to ${to}, but here are some upcoming departures from ${from} to other cities!`;
     }
+  }
+
+  if (trains.length > 0) {
+    finalDate = trains[0].departureTime.toISOString().split('T')[0];
   }
 
   return { 
@@ -481,9 +505,9 @@ async function searchTrains({ from, to, date }) {
     requestedDate: date,
     actualDate: finalDate,
     isFallbackSearch: isFallback,
-    message: isFallback && trains.length > 0 
+    message: suggestedRouteMessage || (isFallback && trains.length > 0 
       ? `No trains found on ${date}, but I found options starting from ${finalDate}.`
-      : null
+      : null)
   };
 }
 
