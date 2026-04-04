@@ -396,23 +396,24 @@ async function getHelpFAQs() {
 // This mimics how LLMs use "semantic understanding" to handle broad queries.
 // ---------------------------------------------------------------------------
 const CITY_MAPPING = {
-  'delhi': ['New Delhi', 'Old Delhi', 'Hazrat Nizamuddin', 'Delhi Cantt', 'Anand Vihar'],
-  'mumbai': ['Mumbai Central', 'Chhatrapati Shivaji Maharaj Terminus', 'Dadar', 'Bandra Terminus', 'Kurla', 'Panvel'],
-  'bangalore': ['KSR Bengaluru', 'Yesvantpur', 'Bangalore Cantt', 'Krishnarajapuram'],
-  'kolkata': ['Howrah', 'Sealdah', 'Kolkata Station', 'Shalimar'],
-  'chennai': ['Chennai Central', 'Chennai Egmore', 'Tambaram'],
-  'hyderabad': ['Secunderabad', 'Hyderabad Deccan', 'Kacheguda'],
-  'pune': ['Pune Junction', 'Shivajinagar'],
-  'jaipur': ['Jaipur Junction', 'Gandhinagar Jaipur'],
-  'ahmedabad': ['Ahmedabad Junction', 'Sabarmati', 'Kalupur'],
-  'lucknow': ['Lucknow Charbagh', 'Lucknow Junction', 'Aishbagh'],
-  'patna': ['Patna Junction', 'Patliputra', 'Rajendra Nagar'],
-  'surat': ['Surat Station', 'Udhna Junction'],
-  'goa': ['Madgaon', 'Thivim', 'Vasco Da Gama', 'Karmali'],
-  'varanasi': ['Varanasi Junction', 'Banaras', 'Pandit Deen Dayal Upadhyaya Junction'],
-  'amritsar': ['Amritsar Junction'],
-  'kerala': ['Ernakulam Junction', 'Thiruvananthapuram Central', 'Kochi', 'Kozhikode'],
-  'kashmir': ['Jammu Tawi', 'Srinagar', 'Udhampur']
+  'delhi': ['Delhi', 'New Delhi', 'Old Delhi', 'Hazrat Nizamuddin', 'Delhi Cantt', 'Anand Vihar'],
+  'mumbai': ['Mumbai', 'Mumbai Central', 'Chhatrapati Shivaji Maharaj Terminus', 'Dadar', 'Bandra Terminus', 'Kurla', 'Panvel'],
+  'bangalore': ['Bangalore', 'KSR Bengaluru', 'Yesvantpur', 'Bangalore Cantt', 'Krishnarajapuram'],
+  'bengaluru': ['Bangalore', 'KSR Bengaluru', 'Yesvantpur', 'Bangalore Cantt', 'Krishnarajapuram'],
+  'kolkata': ['Kolkata', 'Howrah', 'Sealdah', 'Kolkata Station', 'Shalimar'],
+  'chennai': ['Chennai', 'Chennai Central', 'Chennai Egmore', 'Tambaram'],
+  'hyderabad': ['Hyderabad', 'Secunderabad', 'Hyderabad Deccan', 'Kacheguda'],
+  'pune': ['Pune', 'Pune Junction', 'Shivajinagar'],
+  'jaipur': ['Jaipur', 'Jaipur Junction', 'Gandhinagar Jaipur'],
+  'ahmedabad': ['Ahmedabad', 'Ahmedabad Junction', 'Sabarmati', 'Kalupur'],
+  'lucknow': ['Lucknow', 'Lucknow Charbagh', 'Lucknow Junction', 'Aishbagh'],
+  'patna': ['Patna', 'Patna Junction', 'Patliputra', 'Rajendra Nagar'],
+  'surat': ['Surat', 'Surat Station', 'Udhna Junction'],
+  'goa': ['Goa', 'Madgaon', 'Thivim', 'Vasco Da Gama', 'Karmali'],
+  'varanasi': ['Varanasi', 'Varanasi Junction', 'Banaras', 'Pandit Deen Dayal Upadhyaya Junction'],
+  'amritsar': ['Amritsar', 'Amritsar Junction'],
+  'kerala': ['Kerala', 'Ernakulam Junction', 'Thiruvananthapuram Central', 'Kochi', 'Kozhikode'],
+  'kashmir': ['Kashmir', 'Jammu Tawi', 'Srinagar', 'Udhampur']
 };
 
 /**
@@ -425,7 +426,9 @@ function getStationQuery(input) {
   
   // 1. Check if it's a known city with multiple stations
   if (CITY_MAPPING[clean]) {
-      return { $in: CITY_MAPPING[clean].map(s => new RegExp(s, 'i')) };
+      // Use both specific stations AND a fuzzy regex for the city itself
+      const stations = CITY_MAPPING[clean];
+      return { $in: [...stations.map(s => new RegExp(`^${s}$`, 'i')), new RegExp(clean, 'i')] };
   }
   
   // 2. Default to fuzzy regex match
@@ -462,13 +465,15 @@ async function searchTrains({ from, to, date }) {
     .limit(10)
     .lean();
 
-  // SMART FALLBACK 1: If a specific date was requested but no trains found, 
-  // search for the NEXT available trains for this route.
-  if (date && trains.length === 0) {
+  // SMART FALLBACK 1: If NO trains found for specified route/date, search for ANY FUTURE trains for this route
+  if (trains.length === 0) {
     isFallback = true;
     const fallbackQuery = { ...query };
     delete fallbackQuery.departureTime;
-    fallbackQuery.departureTime = { $gte: new Date(date) };
+    
+    // Always search from "today" or requested date onwards
+    const startingFrom = date ? new Date(date) : new Date();
+    fallbackQuery.departureTime = { $gte: startingFrom };
     
     trains = await Train.find(fallbackQuery)
       .select('trainName trainNumber origin destination departureTime arrivalTime availableSeats totalSeats classes status')
@@ -481,7 +486,12 @@ async function searchTrains({ from, to, date }) {
   // try searching for ANY trains from the origin to ANY destination.
   let suggestedRouteMessage = null;
   if (from && to && trains.length === 0) {
-    const broadQuery = { status: 'active', origin: getStationQuery(from), departureTime: { $gte: new Date() } };
+    const broadQuery = { 
+      status: 'active', 
+      origin: getStationQuery(from), 
+      departureTime: { $gte: new Date() } 
+    };
+    
     const alternativeTrains = await Train.find(broadQuery)
       .select('trainName trainNumber origin destination departureTime arrivalTime availableSeats totalSeats classes status')
       .sort({ departureTime: 1 })
@@ -491,7 +501,7 @@ async function searchTrains({ from, to, date }) {
     if (alternativeTrains.length > 0) {
       trains = alternativeTrains;
       isFallback = true;
-      suggestedRouteMessage = `I couldn't find any trains from ${from} to ${to}, but here are some upcoming departures from ${from} to other cities!`;
+      suggestedRouteMessage = `I couldn't find any direct trains from ${from} to ${to}, but here are upcoming departures from ${from} to other cities!`;
     }
   }
 
