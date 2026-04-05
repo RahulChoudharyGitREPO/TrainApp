@@ -591,26 +591,24 @@ async function bookTicket({ trainId, passengers, classType }, userId) {
       return { success: false, message: `Only ${requestedClass.availableSeats} seat(s) available in ${classType}.` };
     }
 
-    const booking = new Booking({
-      userId, trainId, passengers, totalSeatsBooked, classType,
-      payment: { amount: requestedClass ? requestedClass.price * totalSeatsBooked : 0 },
-    });
-    await booking.save({ session });
-
-    train.availableSeats -= totalSeatsBooked;
-    if (requestedClass) requestedClass.availableSeats -= totalSeatsBooked;
-    await train.save({ session });
-    await session.commitTransaction();
+    // Handoff to Razorpay checkout on the frontend!
+    // No database writes yet.
+    await session.abortTransaction();
+    
+    const price = requestedClass ? requestedClass.price : 0;
 
     return {
       success: true,
-      bookingId: booking._id,
-      bookingReference: booking.bookingReference,
+      handoff: true,
+      trainId: train._id.toString(),
       trainName: train.trainName,
       route: `${train.origin} → ${train.destination}`,
       departureTime: train.departureTime,
-      classType, passengers, totalSeatsBooked,
-      status: booking.status,
+      classType, 
+      passengers, 
+      totalSeatsBooked,
+      price: price.toString(),
+      message: "Ready to book! Opening the secure payment screen for you right now.",
     };
   } catch (err) {
     await session.abortTransaction();

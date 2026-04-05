@@ -6,16 +6,24 @@ import { HTTP_STATUS } from '../utils/constants.js';
 import { invalidateCacheMiddleware } from '../middleware/cache.js';
 import Booking from '../models/Booking.js';
 import Train from '../models/Train.js';
+import Razorpay from 'razorpay';
+import crypto from 'crypto';
 
 const router = express.Router();
+
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_RU6sApsvCN5pGY',
+  key_secret: process.env.RAZORPAY_KEY_SECRET || '9Ml2L9tZB8PwdAIU6shJYhNs',
+});
 
 // All routes require authentication
 router.use(authenticate);
 
-// Get payment config for frontend (dummy)
+// Get payment config for frontend
 router.get('/config', asyncHandler(async (req, res) => {
   sendResponse(res, HTTP_STATUS.OK, true, 'Payment config fetched', {
-    paymentMode: 'dummy',
+    paymentMode: 'razorpay',
+    keyId: process.env.RAZORPAY_KEY_ID || 'rzp_test_RU6sApsvCN5pGY',
   });
 }));
 
@@ -62,19 +70,28 @@ router.post('/create-order', asyncHandler(async (req, res) => {
   const bookingReference = 'TRB' + Date.now().toString(36).toUpperCase() +
                           Math.random().toString(36).substr(2, 5).toUpperCase();
 
-  // Create dummy order ID
-  const orderId = 'order_dummy_' + Date.now() + Math.random().toString(36).substr(2, 9);
+  try {
+    const options = {
+      amount: totalAmount * 100, // Razorpay amount is in paise
+      currency: 'INR',
+      receipt: bookingReference,
+    };
 
-  // Store order details temporarily (you might want to create a pending booking)
-  sendResponse(res, HTTP_STATUS.OK, true, 'Payment order created successfully', {
-    orderId: orderId,
-    amount: totalAmount, // Total calculated amount in rupees
-    pricePerTicket: pricePerTicket,
-    classType: classType,
-    numberOfPassengers: passengers.length,
-    currency: 'INR',
-    bookingReference,
-  });
+    const order = await razorpay.orders.create(options);
+
+    sendResponse(res, HTTP_STATUS.OK, true, 'Payment order created successfully', {
+      orderId: order.id,
+      amount: totalAmount, // Total calculated amount in rupees
+      pricePerTicket: pricePerTicket,
+      classType: classType,
+      numberOfPassengers: passengers.length,
+      currency: 'INR',
+      bookingReference,
+    });
+  } catch (error) {
+    console.error('Razorpay order creation error:', error);
+    return sendResponse(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, false, 'Failed to create payment order');
+  }
 }));
 
 // Verify payment and create booking (dummy payment - auto-approved)
@@ -84,20 +101,30 @@ router.post('/verify-payment', invalidateCacheMiddleware(['cache:*/api/bookings*
 
   try {
     const {
-      orderId,
-      paymentId,
+      razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature,
       trainId,
       passengers,
       amount,
       classType,
     } = req.body;
 
-    if (!orderId || !trainId || !passengers || !amount) {
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature || !trainId || !passengers || !amount) {
       await session.abortTransaction();
       return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, 'Payment verification details are required');
     }
 
-    // Dummy payment - automatically approve all payments
+    const body = razorpay_order_id + "|" + razorpay_payment_id;
+    const expectedSignature = crypto
+      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET || '9Ml2L9tZB8PwdAIU6shJYhNs')
+      .update(body.toString())
+      .digest("hex");
+
+    if (expectedSignature !== razorpay_signature) {
+      await session.abortTransaction();
+      return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, 'Invalid signature');
+    }
 
     // Verify train and seats
     const train = await Train.findById(trainId).session(session);
@@ -145,9 +172,9 @@ router.post('/verify-payment', invalidateCacheMiddleware(['cache:*/api/bookings*
       totalSeatsBooked,
       classType,
       payment: {
-        orderId: orderId || 'dummy_order_' + Date.now(),
-        paymentId: paymentId || 'dummy_payment_' + Date.now(),
-        signature: 'dummy_signature',
+        orderId: razorpay_order_id,
+        paymentId: razorpay_payment_id,
+        signature: razorpay_signature,
         amount: amount,
         currency: 'INR',
         status: 'completed',
@@ -193,7 +220,7 @@ router.post('/verify-payment', invalidateCacheMiddleware(['cache:*/api/bookings*
     sendResponse(res, HTTP_STATUS.CREATED, true, 'Payment verified and booking created successfully', {
       booking: populatedBooking,
       payment: {
-        id: paymentId || 'dummy_payment_' + Date.now(),
+        id: razorpay_payment_id,
         status: 'completed',
         amount: amount,
         currency: 'INR',
